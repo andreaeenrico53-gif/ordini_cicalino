@@ -1,46 +1,44 @@
-export default async function handler(req, res) {
-    if (req.method !== 'POST') return res.status(405).send('Method Not Allowed');
+#include <WiFi.h>
+#include <WiFiClientSecure.h>
+#include <UniversalTelegramBot.h>
+#include <ArduinoJson.h>
 
-    const { message, callback_query } = req.body;
-    const SB_URL = "https://ehyznszspoobksladnwy.supabase.co";
-    const SB_KEY = "sb_publishable_wxt4OsEMsYKj6ZyAtFHyLQ_ENfylzJH"; 
-    const token = process.env.TELEGRAM_TOKEN;
+// --- CONFIGURAZIONE ---
+const char* ssid = "NOME_TUA_RETE";
+const char* password = "PASSWORD_WIFI";
+const char* botToken = "IL_TUO_TOKEN_BOT";
+const char* chatID = "ID_DEL_GRUPPO_CAMERIERI"; // Può essere l'ID del gruppo o il tuo ID privato
 
-    try {
-        // --- 1. GESTIONE CLICK BOTTONI (Azione 'S' = Scegli) ---
-        if (callback_query) {
-            const chatId = callback_query.message.chat.id;
-            const data = callback_query.data.split('|'); 
+const int pinTasto = 4; // Pin del tasto ordine pronto
 
-            if (data[0] === 'S') {
-                // Recupera il nome dal testo del bottone cliccato
-                const bottone = callback_query.message.reply_markup.inline_keyboard
-                    .flat()
-                    .find(b => b.callback_data === callback_query.data);
-                
-                const nomeProdotto = bottone ? bottone.text : "Prodotto";
+WiFiClientSecure client;
+UniversalTelegramBot bot(botToken, client);
 
-                await inviaTelegram(chatId, `Hai scelto: <b>${nomeProdotto}</b>\n\nScrivi quante unità vuoi AGGIUNGERE:`, token, { force_reply: true });
-            }
-            return res.status(200).json({ ok: true });
-        }
+void setup() {
+  Serial.begin(115200);
+  pinMode(pinTasto, INPUT_PULLUP);
 
-        // --- 2. GESTIONE MESSAGGI DI TESTO ---
-        if (message && message.text) {
-            const chatId = message.chat.id;
-            const text = message.text.trim();
+  WiFi.begin(ssid, password);
+  client.setInsecure(); // Necessario per ESP32 se non si usano certificati specifici
 
-            // COMANDO: /aggiungi (Mostra bottoni)
-            if (text.startsWith('/aggiungi')) {
-                const response = await fetch(`${SB_URL}/rest/v1/prodotti?select=id,nome&order=nome.asc`, {
-                    headers: { "apikey": SB_KEY, "Authorization": `Bearer ${SB_KEY}` }
-                });
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("\nWiFi connesso!");
+}
 
-                if (!response.ok) {
-                    await inviaTelegram(chatId, "❌ Errore connessione Database.", token);
-                    return res.status(200).send('OK');
-                }
-
-                const prodotti = await response.json();
-                const tastiera = [];
-                for (let i = 0; i < prodotti.length; i += 2
+void loop() {
+  if (digitalRead(pinTasto) == LOW) {
+    int tavolo = random(1, 21); // Genera un tavolo a caso da 1 a 20
+    String messaggio = "🛎️ L'ordine del tavolo " + String(tavolo) + " è pronto!";
+    
+    if (bot.sendMessage(chatID, messaggio, "")) {
+      Serial.println("Messaggio inviato!");
+      // Inviamo anche un comando "nascosto" che il secondo ESP32 leggerà
+      bot.sendMessage(chatID, "/ATTIVA_BUZZER", ""); 
+    }
+    
+    delay(2000); // Evita invii multipli per una sola pressione
+  }
+}
