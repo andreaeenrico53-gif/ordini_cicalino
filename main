@@ -1,1 +1,91 @@
+#include <WiFi.h>
+#include <WiFiClientSecure.h>
+#include <UniversalTelegramBot.h>
+#include <ArduinoJson.h>
 
+// --- CONFIGURAZIONE ---
+const char* ssid = "IL_TUO_WIFI";
+const char* password = "LA_TUA_PASSWORD";
+const char* botToken = "IL_TUO_TOKEN_BOT";
+const char* chatID = "IL_TUO_CHAT_ID";
+
+const int pinBuzzer = 18;
+const int pinTastoStop = 19;
+
+bool buzzerAttivo = false;
+WiFiClientSecure client;
+UniversalTelegramBot bot(botToken, client);
+
+unsigned long ultimoControllo = 0;
+const unsigned long intervallo = 2000; // Controlla messaggi ogni 2 secondi
+
+// Funzione per creare la tastiera dei 15 tavoli
+void inviaMenuTavoli() {
+  String tastiera = "[";
+  for (int i = 1; i <= 15; i++) {
+    if ((i-1) % 3 == 0) tastiera += "["; // Inizia una nuova riga ogni 3 tasti
+    tastiera += "{\"text\": \"Tavolo " + String(i) + "\", \"callback_data\": \"pronto_" + String(i) + "\"}";
+    if (i % 3 == 0 || i == 15) tastiera += "]"; 
+    if (i < 15 && i % 3 == 0) tastiera += ",";
+  }
+  tastiera += "]";
+  bot.sendMessageWithInlineKeyboard(chatID, " quale tavolo è pronto?", "Markdown", tastiera);
+}
+
+void gestisciMessaggi(int numNuoviMessaggi) {
+  for (int i = 0; i < numNuoviMessaggi; i++) {
+    String text = bot.messages[i].text;
+    String type = bot.messages[i].type;
+
+    // Se il barista scrive /start o /menu, appare la lista tavoli
+    if (text == "/start" || text == "/menu") {
+      inviaMenuTavoli();
+    }
+
+    // Se il barista clicca su un tavolo
+    if (type == "callback_query") {
+      String data = bot.messages[i].query_data;
+      if (data.startsWith("pronto_")) {
+        String numTavolo = data.substring(7);
+        buzzerAttivo = true;
+        bot.sendMessage(chatID, "✅ Chiamata inviata per il Tavolo " + numTavolo, "");
+        bot.answerCallbackQuery(bot.messages[i].query_id, "Buzzer attivato!");
+      }
+    }
+  }
+}
+
+void setup() {
+  Serial.begin(115200);
+  pinMode(pinBuzzer, OUTPUT);
+  pinMode(pinTastoStop, INPUT_PULLUP);
+
+  WiFi.begin(ssid, password);
+  client.setInsecure();
+  while (WiFi.status() != WL_CONNECTED) { delay(500); Serial.print("."); }
+  Serial.println("\nWiFi Connesso!");
+  
+  bot.sendMessage(chatID, "🤖 Sistema Bar Pronto! Scrivi /menu per iniziare.", "");
+}
+
+void loop() {
+  // 1. Controllo nuovi ordini dal bot
+  if (millis() - ultimoControllo > intervallo) {
+    int numNuoviMessaggi = bot.getUpdates(bot.last_message_received + 1);
+    gestisciMessaggi(numNuoviMessaggi);
+    ultimoControllo = millis();
+  }
+
+  // 2. Gestione suono Buzzer
+  if (buzzerAttivo) {
+    digitalWrite(pinBuzzer, (millis() / 300) % 2); // Suono intermittente veloce
+    
+    // 3. Tasto fisico per fermare il suono
+    if (digitalRead(pinTastoStop) == LOW) {
+      buzzerAttivo = false;
+      digitalWrite(pinBuzzer, LOW);
+      bot.sendMessage(chatID, "🔕 Il cameriere ha silenziato il buzzer.", "");
+      delay(500); 
+    }
+  }
+}
