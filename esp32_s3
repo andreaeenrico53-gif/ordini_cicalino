@@ -1,0 +1,58 @@
+#include <WiFi.h>
+#include <WiFiClientSecure.h>
+#include <UniversalTelegramBot.h>
+
+const char* ssid = "NOME_TUA_RETE";
+const char* password = "PASSWORD_WIFI";
+const char* botToken = "IL_TUO_TOKEN_BOT";
+
+const int pinBuzzer = 18;
+const int pinTastoStop = 19;
+
+bool buzzerInFunzione = false;
+unsigned long ultimoControllo = 0;
+const unsigned long intervalloControllo = 2000; // Controlla messaggi ogni 2 secondi
+
+WiFiClientSecure client;
+UniversalTelegramBot bot(botToken, client);
+
+void gestisciMessaggi(int numNuoviMessaggi) {
+  for (int i = 0; i < numNuoviMessaggi; i++) {
+    String text = bot.messages[i].text;
+    if (text == "/ATTIVA_BUZZER") {
+      buzzerInFunzione = true;
+    }
+  }
+}
+
+void setup() {
+  Serial.begin(115200);
+  pinMode(pinBuzzer, OUTPUT);
+  pinMode(pinTastoStop, INPUT_PULLUP);
+
+  WiFi.begin(ssid, password);
+  client.setInsecure();
+
+  while (WiFi.status() != WL_CONNECTED) { delay(500); }
+}
+
+void loop() {
+  // 1. Controlla il Bot ogni X secondi
+  if (millis() - ultimoControllo > intervalloControllo) {
+    int numNuoviMessaggi = bot.getUpdates(bot.last_message_received + 1);
+    gestisciMessaggi(numNuoviMessaggi);
+    ultimoControllo = millis();
+  }
+
+  // 2. Gestione del suono del Buzzer
+  if (buzzerInFunzione) {
+    digitalWrite(pinBuzzer, (millis() / 500) % 2); // Suono intermittente
+    
+    // 3. Tasto per fermare il suono
+    if (digitalRead(pinTastoStop) == LOW) {
+      buzzerInFunzione = false;
+      digitalWrite(pinBuzzer, LOW);
+      Serial.println("Buzzer fermato manualmente.");
+    }
+  }
+}
